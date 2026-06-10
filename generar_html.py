@@ -977,7 +977,7 @@ const GITHUB_REPO   = 'dashboard-totem';
 const GITHUB_BRANCH = 'main';
 
 // Token embebido (ofuscado) — no modificar
-const _t = ['ghp_s1NIUtMd','v1UAhwk9g2','fyfhWT6Kon','AI0M7Yej'].join('');
+const _t = ['ghp_ezcBrk','IsjIP7lmpK','HJdz51FgmK','zrLH4EuiH4'].join('');
 
 // Hash SHA-256 de la contraseña autorizada
 const PWD_HASH = '5fa9c7f9571a9f2e62f1db59255a318c0eef1714edadcfac7a3d7c9eb2e7dfb8';

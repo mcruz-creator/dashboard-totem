@@ -1,0 +1,41 @@
+name: Actualizar Dashboard
+
+on:
+  push:
+    paths:
+      - 'nuevos/**'
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install xlrd==2.0.1
+
+      - name: Procesar XLS
+        run: python procesar.py
+
+      - name: Generar HTML
+        run: python generar_html.py
+
+      - name: Copiar a index.html
+        run: cp dashboard.html index.html
+
+      - name: Commit y push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html datos/datos.json procesados/ nuevos/
+          git diff --staged --quiet || git commit -m "Dashboard actualizado automaticamente"
+          git push
