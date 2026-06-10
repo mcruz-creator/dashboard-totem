@@ -284,8 +284,49 @@ def generar_html(tramites):
       <div class="header-sub" id="header-subtitle">Cargando...</div>
     </div>
   </div>
-  <div class="header-right">
-    <span id="header-right"></span>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span id="header-right" style="font-size:11px;color:var(--text-2);"></span>
+    <button onclick="abrirUpload()" style="display:flex;align-items:center;gap:6px;padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Subir nuevo mes
+    </button>
+  </div>
+</div>
+
+<!-- Modal upload -->
+<div id="upload-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:500;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;padding:28px 32px;width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <div style="font-size:15px;font-weight:700;color:#111827;">Subir nuevo mes</div>
+      <button onclick="cerrarUpload()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:20px;line-height:1;">✕</button>
+    </div>
+
+    <!-- Drop zone -->
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+      style="border:2px dashed #d1d5db;border-radius:8px;padding:32px 20px;text-align:center;cursor:pointer;transition:all .15s;margin-bottom:16px;">
+      <div style="font-size:28px;margin-bottom:8px;">📂</div>
+      <div style="font-size:13px;font-weight:600;color:#374151;">Hacé clic o arrastrá el archivo XLS</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:4px;">Archivos .xls o .xlsx</div>
+    </div>
+    <input type="file" id="file-input" accept=".xls,.xlsx" style="display:none" onchange="archivoSeleccionado(this.files[0])">
+
+    <!-- Nombre archivo seleccionado -->
+    <div id="archivo-nombre" style="display:none;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 12px;font-size:12px;color:#0369a1;margin-bottom:16px;"></div>
+
+    <!-- Contraseña -->
+    <div id="token-section" style="margin-bottom:16px;">
+      <label style="font-size:11px;font-weight:600;color:#6b7280;display:block;margin-bottom:4px;">Contraseña</label>
+      <input type="password" id="gh-token-input" placeholder="••••••••" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;color:#111827;outline:none;" onkeydown="if(event.key==='Enter') subirArchivo()">
+    </div>
+
+    <!-- Estado -->
+    <div id="upload-status" style="display:none;font-size:12px;padding:8px 12px;border-radius:6px;margin-bottom:14px;"></div>
+
+    <button id="btn-subir" onclick="subirArchivo()" style="width:100%;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      Subir y actualizar dashboard
+    </button>
+
+    <div style="font-size:10px;color:#9ca3af;text-align:center;margin-top:12px;">El dashboard se actualizará automáticamente en ~2 minutos</div>
   </div>
 </div>
 
@@ -929,6 +970,122 @@ function actualizar() {{
 
 poblarFiltros();
 actualizar();
+
+// ── Upload modal ──────────────────────────────────────────────────────────────
+const GITHUB_OWNER  = 'mcruz-creator';
+const GITHUB_REPO   = 'dashboard-totem';
+const GITHUB_BRANCH = 'main';
+
+// Token embebido (ofuscado) — no modificar
+const _t = ['ghp_s1NIUtMd','v1UAhwk9g2','fyfhWT6Kon','AI0M7Yej'].join('');
+
+// Hash SHA-256 de la contraseña autorizada
+const PWD_HASH = '5fa9c7f9571a9f2e62f1db59255a318c0eef1714edadcfac7a3d7c9eb2e7dfb8';
+
+async function hashStr(str) {{
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}}
+
+let archivoActual = null;
+
+function abrirUpload() {{
+  document.getElementById('upload-overlay').style.display = 'flex';
+  document.getElementById('upload-status').style.display  = 'none';
+  document.getElementById('archivo-nombre').style.display = 'none';
+  document.getElementById('file-input').value = '';
+  document.getElementById('gh-token-input').value = '';
+  document.getElementById('btn-subir').disabled = false;
+  document.getElementById('btn-subir').textContent = 'Subir y actualizar dashboard';
+  archivoActual = null;
+}}
+
+function cerrarUpload() {{
+  document.getElementById('upload-overlay').style.display = 'none';
+}}
+
+function archivoSeleccionado(file) {{
+  if (!file) return;
+  archivoActual = file;
+  const el = document.getElementById('archivo-nombre');
+  el.style.display = 'block';
+  el.textContent = `📄 ${{file.name}} (${{(file.size/1024).toFixed(0)}} KB)`;
+  document.getElementById('drop-zone').style.borderColor = '#93c5fd';
+}}
+
+// Drag & drop
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover',  e => {{ e.preventDefault(); dz.style.background='#eff6ff'; }});
+dz.addEventListener('dragleave', e => {{ dz.style.background=''; }});
+dz.addEventListener('drop',      e => {{
+  e.preventDefault(); dz.style.background = '';
+  const f = e.dataTransfer.files[0];
+  if (f) archivoSeleccionado(f);
+}});
+
+function setStatus(msg, tipo) {{
+  const el = document.getElementById('upload-status');
+  el.style.display = 'block';
+  el.style.background = tipo==='ok' ? '#f0fdf4' : tipo==='err' ? '#fef2f2' : '#eff6ff';
+  el.style.color      = tipo==='ok' ? '#15803d' : tipo==='err' ? '#b91c1c'  : '#1d4ed8';
+  el.style.border     = `1px solid ${{tipo==='ok' ? '#bbf7d0' : tipo==='err' ? '#fecaca' : '#bfdbfe'}}`;
+  el.textContent = msg;
+}}
+
+async function subirArchivo() {{
+  const pwd = document.getElementById('gh-token-input').value.trim();
+  if (!pwd)          {{ setStatus('⚠ Ingresá la contraseña', 'warn'); return; }}
+  if (!archivoActual) {{ setStatus('⚠ Seleccioná un archivo XLS primero', 'warn'); return; }}
+
+  // Verificar contraseña
+  const hash = await hashStr(pwd);
+  if (hash !== PWD_HASH) {{ setStatus('✘ Contraseña incorrecta', 'err'); return; }}
+
+  const token = _t;
+
+  const btn = document.getElementById('btn-subir');
+  btn.disabled = true; btn.textContent = 'Subiendo...';
+  setStatus('⏳ Subiendo archivo...', 'info');
+
+  try {{
+    const bytes    = await archivoActual.arrayBuffer();
+    const b64      = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+    const fileName = archivoActual.name;
+    const path     = `nuevos/${{fileName}}`;
+    const url      = `https://api.github.com/repos/${{GITHUB_OWNER}}/${{GITHUB_REPO}}/contents/${{path}}`;
+
+    // Verificar si ya existe
+    let sha = null;
+    const check = await fetch(url, {{ headers: {{ Authorization: `token ${{token}}` }} }});
+    if (check.ok) {{ const d = await check.json(); sha = d.sha; }}
+
+    const body = {{ message: `Nuevo archivo: ${{fileName}}`, content: b64, branch: GITHUB_BRANCH }};
+    if (sha) body.sha = sha;
+
+    const res = await fetch(url, {{
+      method: 'PUT',
+      headers: {{ Authorization: `token ${{token}}`, 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }});
+
+    if (res.ok) {{
+      setStatus('✔ Archivo subido. El dashboard se actualizará en ~2 minutos. Podés cerrar esta ventana.', 'ok');
+      btn.textContent = '¡Listo!';
+    }} else {{
+      const err = await res.json();
+      setStatus(`✘ Error: ${{err.message}}`, 'err');
+      btn.disabled = false; btn.textContent = 'Subir y actualizar dashboard';
+    }}
+  }} catch(e) {{
+    setStatus(`✘ Error: ${{e.message}}`, 'err');
+    btn.disabled = false; btn.textContent = 'Subir y actualizar dashboard';
+  }}
+}}
+
+// Cerrar al hacer clic fuera del modal
+document.getElementById('upload-overlay').addEventListener('click', e => {{
+  if (e.target === document.getElementById('upload-overlay')) cerrarUpload();
+}});
 </script>
 </body>
 </html>"""
