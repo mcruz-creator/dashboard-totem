@@ -2,7 +2,14 @@ import xlrd
 import json
 import os
 import shutil
+import sys
 from datetime import datetime, date
+
+try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
 
 NUEVOS_DIR = "nuevos"
 PROCESADOS_DIR = "procesados"
@@ -65,14 +72,45 @@ def normalizar_tramite(nombre):
 
 # ── transformación ────────────────────────────────────────────────────────────
 
+def _abrir_hoja(path):
+    """Abre XLS o XLSX y devuelve (nrows, cell_value_fn, parse_date_fn)."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".xlsx":
+        if not HAS_OPENPYXL:
+            raise ImportError("Se necesita openpyxl para leer .xlsx: pip install openpyxl")
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        nrows = len(rows)
+        def cell_value(r, c):
+            if r >= nrows or c >= len(rows[r]):
+                return ""
+            v = rows[r][c]
+            return v if v is not None else ""
+        def parse_date(raw):
+            if isinstance(raw, datetime):
+                return raw
+            if isinstance(raw, date):
+                return datetime(raw.year, raw.month, raw.day)
+            return None
+        return nrows, cell_value, parse_date
+    else:
+        wb = xlrd.open_workbook(path)
+        ws = wb.sheet_by_index(0)
+        def cell_value(r, c):
+            return ws.cell_value(r, c)
+        def parse_date(raw):
+            return xlrd.xldate_as_datetime(raw, wb.datemode)
+        return ws.nrows, cell_value, parse_date
+
+
 def procesar_xls(path, archivo_origen):
-    wb = xlrd.open_workbook(path)
-    ws = wb.sheet_by_index(0)
+    nrows, cell_value, parse_date = _abrir_hoja(path)
 
     # Buscar fila de encabezados reales
     header_row = None
-    for i in range(min(10, ws.nrows)):
-        val = str(ws.cell_value(i, 0)).strip().upper()
+    for i in range(min(10, nrows)):
+        val = str(cell_value(i, 0)).strip().upper()
         if val == "FECHA":
             header_row = i
             break
@@ -92,14 +130,12 @@ def procesar_xls(path, archivo_origen):
         cab = bloque_cabecera
         detalles = bloque_detalles[:]
 
-        # Identificar evento TOTEM y segunda fila
         eventos_totem = [d for d in detalles if d["usuario"].upper().strip() == "TOTEM"]
         segunda_fila = detalles[0] if detalles else None
 
         tiene_totem = len(eventos_totem) >= 1
         cantidad_totem = len(eventos_totem)
 
-        # Duración total
         duracion_seg = None
         if cab["hora_inicio"] and cab["hora_fin"]:
             ini = hora_str_a_seg(cab["hora_inicio"])
@@ -107,7 +143,6 @@ def procesar_xls(path, archivo_origen):
             if ini is not None and fin is not None and fin >= ini:
                 duracion_seg = fin - ini
 
-        # Primera atención: TIEMPO_TRANSCURRIDO de la segunda fila
         t1a_seg = None
         segunda_fila_estado = None
         segunda_fila_usuario = None
@@ -116,8 +151,6 @@ def procesar_xls(path, archivo_origen):
             segunda_fila_estado = segunda_fila.get("estado", "")
             segunda_fila_usuario = segunda_fila.get("usuario", "")
 
-        # Controles
-        # Usuario cabecera: si es TOTEM, no hay usuario humano real
         usuario_cab = cab["usuario_cabecera"]
         if usuario_cab and usuario_cab.upper().strip() == "TOTEM":
             usuario_cab = None
@@ -164,19 +197,19 @@ def procesar_xls(path, archivo_origen):
             "cantidad_totem": cantidad_totem,
             "segunda_fila_estado": segunda_fila_estado,
             "segunda_fila_usuario": segunda_fila_usuario,
-            "flag_outlier_1ra_atencion": False,  # pendiente de regla
+            "flag_outlier_1ra_atencion": False,
             "flags_control": flags,
         })
 
-    for i in range(header_row + 1, ws.nrows):
-        fecha_raw = ws.cell_value(i, 0)
-        nro_turno = str(ws.cell_value(i, 1)).strip()
-        tramite   = str(ws.cell_value(i, 2)).strip()
-        estado    = str(ws.cell_value(i, 3)).strip()
-        hora_ini  = str(ws.cell_value(i, 4)).strip()
-        hora_fin  = str(ws.cell_value(i, 5)).strip()
-        tiempo_tr = str(ws.cell_value(i, 6)).strip()
-        usuario   = str(ws.cell_value(i, 7)).strip()
+    for i in range(header_row + 1, nrows):
+        fecha_raw = cell_value(i, 0)
+        nro_turno = str(cell_value(i, 1)).strip()
+        tramite   = str(cell_value(i, 2)).strip()
+        estado    = str(cell_value(i, 3)).strip()
+        hora_ini  = str(cell_value(i, 4)).strip()
+        hora_fin  = str(cell_value(i, 5)).strip()
+        tiempo_tr = str(cell_value(i, 6)).strip()
+        usuario   = str(cell_value(i, 7)).strip()
 
         es_cabecera = bool(fecha_raw) and not nro_turno.replace(".", "").isdigit()
 
@@ -184,7 +217,9 @@ def procesar_xls(path, archivo_origen):
             cerrar_bloque()
             bloque_detalles = []
 
-            fecha_dt = xlrd.xldate_as_datetime(fecha_raw, wb.datemode)
+            fecha_dt = parse_date(fecha_raw)
+            if fecha_dt is None:
+                continue
             fecha_str = fecha_dt.strftime("%Y-%m-%d")
             mes_str   = fecha_dt.strftime("%Y-%m")
             anio_str  = fecha_dt.strftime("%Y")
@@ -198,7 +233,7 @@ def procesar_xls(path, archivo_origen):
                 "estado_final": estado,
                 "hora_inicio": hora_ini if hora_ini else None,
                 "hora_fin": hora_fin if hora_fin else None,
-                "usuario_cabecera": tiempo_tr,  # columna TIEMPO_TRANSCURRIDO en cabecera = usuario
+                "usuario_cabecera": tiempo_tr,
             }
         elif bloque_cabecera is not None:
             bloque_detalles.append({
@@ -211,7 +246,7 @@ def procesar_xls(path, archivo_origen):
                 "usuario": usuario,
             })
 
-    cerrar_bloque()  # cerrar último bloque
+    cerrar_bloque()
     return tramites
 
 # ── control de duplicados ─────────────────────────────────────────────────────
@@ -261,10 +296,15 @@ def main():
         solapados = meses_nuevos & fechas_ya_procesadas
         if solapados:
             print(f"[ADVERTENCIA] '{archivo}' contiene meses ya procesados: {', '.join(sorted(solapados))}")
-            resp = input("  ¿Querés continuar de todas formas? (s/n): ").strip().lower()
-            if resp != "s":
-                print(f"  Saltando '{archivo}'.")
-                continue
+            if os.environ.get("CI"):
+                print("  (CI) Auto-aceptando meses solapados.")
+            elif sys.stdin.isatty():
+                resp = input("  ¿Querés continuar de todas formas? (s/n): ").strip().lower()
+                if resp != "s":
+                    print(f"  Saltando '{archivo}'.")
+                    continue
+            else:
+                print("  (no-interactive) Auto-aceptando meses solapados.")
 
         # Acumular
         datos["tramites"].extend(tramites_nuevos)
