@@ -100,7 +100,10 @@ def _abrir_hoja(path):
         def cell_value(r, c):
             return ws.cell_value(r, c)
         def parse_date(raw):
-            return xlrd.xldate_as_datetime(raw, wb.datemode)
+            try:
+                return xlrd.xldate_as_datetime(raw, wb.datemode)
+            except (TypeError, ValueError):
+                return None
         return ws.nrows, cell_value, parse_date
 
 
@@ -115,7 +118,7 @@ def procesar_xls(path, archivo_origen):
             header_row = i
             break
     if header_row is None:
-        raise ValueError("No se encontró fila de encabezados (FECHA, NRO. DE TURNO, ...)")
+        header_row = -1  # sin encabezados: empezar desde fila 0
 
     tramites = []
     bloque_cabecera = None
