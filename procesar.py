@@ -285,7 +285,11 @@ def main():
             continue
 
         print(f"Procesando '{archivo}'...")
-        tramites_nuevos = procesar_xls(path, nombre)
+        try:
+            tramites_nuevos = procesar_xls(path, nombre)
+        except Exception as e:
+            print(f"[ERROR] '{archivo}' no se pudo procesar: {e}")
+            continue
 
         if not tramites_nuevos:
             print(f"[WARN] '{archivo}' no generó trámites.")
