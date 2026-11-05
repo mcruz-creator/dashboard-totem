@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'nuevos/**'
+  workflow_dispatch:
 
 permissions:
   contents: write
